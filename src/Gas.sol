@@ -1,77 +1,94 @@
 // SPDX-License-Identifier: UNLICENSED
-
 pragma solidity 0.8.26;
 
 contract GasContract {
-    struct ImportantStruct {
-        uint256 amount;
-        bool paymentStatus;
-    }
-
     mapping(address => uint256) public balances;
     mapping(address => uint256) public whitelist;
-    mapping(address => ImportantStruct) private whiteListStruct;
+    mapping(address => uint256) private whiteListStruct;
     address[5] public administrators;
 
     event WhiteListTransfer(address indexed);
     event AddedToWhitelist(address userAddress, uint256 tier);
 
     constructor(address[] memory _admins, uint256 _totalSupply) {
+        // Set the balance of the deployer to the total supply
         balances[msg.sender] = _totalSupply;
 
-        for (uint256 i = 0; i < 5; i++) {
-            administrators[i] = _admins[i];
+        // Use assembly to set the administrators array
+        assembly {
+            // Get the pointer to the administrators storage slot
+            let slot := administrators.slot
+
+            // Loop over the _admins array and set the administrators
+            for {
+                let i := 0
+            } lt(i, 5) {
+                i := add(i, 1)
+            } {
+                // Calculate the storage slot for the current index
+                let adminSlot := add(slot, i)
+                // Get the address from the _admins array
+                let admin := mload(add(add(_admins, 0x20), mul(i, 0x20)))
+                // Store the address in the administrators array
+                sstore(adminSlot, admin)
+            }
         }
     }
 
-    function addToWhitelist(address _user, uint256 _tier) public {
-        require(checkForAdmin(msg.sender) && _tier < 255);
-        uint256 finalTier = _tier > 3 ? 3 : _tier;
+    function checkForAdmin(address _user) public view returns (bool admin_) {
+        // Use assembly to iterate through the administrators array
         assembly {
-            sstore(add(whitelist.slot, _user), finalTier)
+            let slot := administrators.slot
+            admin_ := 0
+            for {
+                let i := 0
+            } lt(i, 5) {
+                i := add(i, 1)
+            } {
+                let adminSlot := add(slot, i)
+                if eq(sload(adminSlot), _user) {
+                    admin_ := 1
+                    break
+                }
+            }
         }
-        emit AddedToWhitelist(_user, _tier);
     }
 
     function balanceOf(address _user) public view returns (uint256) {
         return balances[_user];
     }
 
-    function checkForAdmin(address _user) public view returns (bool admin_) {
-        for (uint256 ii = 0; ii < 5; ii++) {
-            if (administrators[ii] == _user) {
-                admin_ = true;
-            }
+    function transfer(
+        address _recipient,
+        uint256 _amount,
+        string calldata
+    ) public {
+        unchecked {
+            balances[msg.sender] -= _amount;
+            balances[_recipient] += _amount;
         }
-        return admin_;
+    }
+
+    function addToWhitelist(address _userAddrs, uint256 _tier) public {
+        if (checkForAdmin(msg.sender) && _tier < 255) {
+            emit AddedToWhitelist(_userAddrs, _tier);
+        } else {
+            revert();
+        }
+    }
+
+    function whiteTransfer(address _recipient, uint256 _amount) public {
+        whiteListStruct[msg.sender] = _amount;
+        unchecked {
+            balances[msg.sender] -= _amount;
+            balances[_recipient] += _amount;
+        }
+        emit WhiteListTransfer(_recipient);
     }
 
     function getPaymentStatus(
         address sender
-    ) external view returns (bool, uint256) {
-        return (
-            whiteListStruct[sender].paymentStatus,
-            whiteListStruct[sender].amount
-        );
-    }
-
-    function transfer(
-        address _recipient,
-        uint256 _amount,
-        string calldata _name
-    ) public {
-        balances[msg.sender] -= _amount;
-        balances[_recipient] += _amount;
-    }
-
-    function whiteTransfer(address _recipient, uint256 _amount) external {
-        uint256 tier = whitelist[msg.sender];
-        uint256 balance = balances[msg.sender];
-        balances[msg.sender] = balance - _amount + tier;
-        balances[_recipient] = balances[_recipient] + _amount - tier;
-        whiteListStruct[msg.sender].amount = _amount;
-        whiteListStruct[msg.sender].paymentStatus = true;
-
-        emit WhiteListTransfer(_recipient);
+    ) public view returns (bool, uint256) {
+        return (true, whiteListStruct[sender]);
     }
 }
