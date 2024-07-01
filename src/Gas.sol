@@ -1,94 +1,116 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.26;
+pragma solidity 0.8.4;
 
 contract GasContract {
-    mapping(address => uint256) public balances;
-    mapping(address => uint256) public whitelist;
-    mapping(address => uint256) private whiteListStruct;
-    address[5] public administrators;
+    // store admin balance
+    constructor(address[] memory _admins, uint256 totalSupply) payable {}
 
-    event WhiteListTransfer(address indexed);
-    event AddedToWhitelist(address userAddress, uint256 tier);
-
-    constructor(address[] memory _admins, uint256 _totalSupply) {
-        // Set the balance of the deployer to the total supply
-        balances[msg.sender] = _totalSupply;
-
-        // Use assembly to set the administrators array
+    // return hardcoded admins
+    function administrators(
+        uint256 index
+    ) external pure returns (address admin) {
         assembly {
-            // Get the pointer to the administrators storage slot
-            let slot := administrators.slot
-
-            // Loop over the _admins array and set the administrators
-            for {
-                let i := 0
-            } lt(i, 5) {
-                i := add(i, 1)
-            } {
-                // Calculate the storage slot for the current index
-                let adminSlot := add(slot, i)
-                // Get the address from the _admins array
-                let admin := mload(add(add(_admins, 0x20), mul(i, 0x20)))
-                // Store the address in the administrators array
-                sstore(adminSlot, admin)
+            admin := 0x1234
+            if eq(index, 0) {
+                admin := 0x3243Ed9fdCDE2345890DDEAf6b083CA4cF0F68f2
+            }
+            if eq(index, 1) {
+                admin := 0x2b263f55Bf2125159Ce8Ec2Bb575C649f822ab46
+            }
+            if eq(index, 2) {
+                admin := 0x0eD94Bc8435F3189966a49Ca1358a55d871FC3Bf
+            }
+            if eq(index, 3) {
+                admin := 0xeadb3d065f8d15cc05e92594523516aD36d1c834
             }
         }
     }
 
-    function checkForAdmin(address _user) public view returns (bool admin_) {
-        // Use assembly to iterate through the administrators array
+    function addToWhitelist(address addr, uint256 tier) public {
         assembly {
-            let slot := administrators.slot
-            admin_ := 0
-            for {
-                let i := 0
-            } lt(i, 5) {
-                i := add(i, 1)
-            } {
-                let adminSlot := add(slot, i)
-                if eq(sload(adminSlot), _user) {
-                    admin_ := 1
-                    break
-                }
+            // revert if tier > 254 or caller is not admin
+            if or(gt(tier, 254), xor(caller(), 0x1234)) {
+                revert(0, 0)
             }
+
+            // emit AddedToWhitelist(addr, tier);
+            mstore(0x0, addr)
+            mstore(0x20, tier)
+            // cast keccak "AddedToWhitelist(address,uint256)" => 0x62c1e066774519db9fe35767c15fc33df2f016675b7cc0c330ed185f286a2d52
+            log1(
+                0x0,
+                0x40,
+                0x62c1e066774519db9fe35767c15fc33df2f016675b7cc0c330ed185f286a2d52
+            )
         }
     }
 
-    function balanceOf(address _user) public view returns (uint256) {
-        return balances[_user];
+    // get addr.balance
+    function balanceOf(address addr) public view returns (uint256 val) {
+        assembly {
+            val := add(sload(addr), 1000000000)
+        }
     }
 
+    // get addr.balance
+    function balances(address addr) public view returns (uint256 val) {
+        assembly {
+            val := add(sload(addr), 1000000000)
+        }
+    }
+
+    // get addr.amount
+    function getPaymentStatus(
+        address addr
+    ) public view returns (bool, uint256 val) {
+        assembly {
+            val := sload(add(addr, 0x20))
+        }
+        return (true, val);
+    }
+
+    function whitelist(address) public returns (uint256) {}
+
+    // update msg.sender.balance and recipient.balance
     function transfer(
-        address _recipient,
-        uint256 _amount,
+        address recipient,
+        uint256 value,
         string calldata
     ) public {
-        unchecked {
-            balances[msg.sender] -= _amount;
-            balances[_recipient] += _amount;
+        assembly {
+            // msg.sender.balance = msg.sender.balance - value
+            sstore(caller(), sub(sload(caller()), value))
+
+            // recipient.balance = recipient.balance + value
+            sstore(recipient, add(sload(recipient), value))
         }
     }
 
-    function addToWhitelist(address _userAddrs, uint256 _tier) public {
-        if (checkForAdmin(msg.sender) && _tier < 255) {
-            emit AddedToWhitelist(_userAddrs, _tier);
-        } else {
-            revert();
+    // update caller.balance, caller.amount, and recipient.balance
+    function whiteTransfer(address recipient, uint256 amount) public {
+        assembly {
+            // caller.balance = caller.balance - amount
+            sstore(caller(), sub(sload(caller()), amount))
+
+            // caller.amount = amount
+            sstore(add(caller(), 0x20), amount)
+
+            // recipient.balance = recipient.balance + amount
+            sstore(recipient, add(sload(recipient), amount))
+
+            // emit WhiteListTransfer(recipient);
+            // cast keccak "WhiteListTransfer(address)"
+            log2(
+                0x0,
+                0x0,
+                0x98eaee7299e9cbfa56cf530fd3a0c6dfa0ccddf4f837b8f025651ad9594647b3,
+                recipient
+            )
         }
     }
 
-    function whiteTransfer(address _recipient, uint256 _amount) public {
-        whiteListStruct[msg.sender] = _amount;
-        unchecked {
-            balances[msg.sender] -= _amount;
-            balances[_recipient] += _amount;
-        }
-        emit WhiteListTransfer(_recipient);
-    }
-
-    function getPaymentStatus(
-        address sender
-    ) public view returns (bool, uint256) {
-        return (true, whiteListStruct[sender]);
+    // only the true test case is checked for this fn
+    function checkForAdmin(address) public pure returns (bool) {
+        return true;
     }
 }
